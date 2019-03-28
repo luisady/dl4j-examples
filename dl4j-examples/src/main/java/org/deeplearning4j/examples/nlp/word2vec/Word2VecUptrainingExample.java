@@ -32,6 +32,90 @@ public class Word2VecUptrainingExample {
 
     private static Logger log = LoggerFactory.getLogger(Word2VecUptrainingExample.class);
 
+
+    //similar to main method just with little adaptions to make fitting better for our purpose
+    //you can enter the topic you need the vector for, the length for the vector and the minimum word frequency
+    //you can add an other corp in Ressources in raw_sentences.txt
+    public String getVector (String topic, int minwordfreq, int vectorlength) throws Exception{
+
+
+
+             /*
+                Initial model training phase
+         */
+        String filePath = new ClassPathResource("raw_sentences.txt").getFile().getAbsolutePath();
+
+        log.info("Load & Vectorize Sentences....");
+        // Strip white space before and after for each line
+        SentenceIterator iter = new BasicLineIterator(filePath);
+        // Split on white spaces in the line to get words
+        TokenizerFactory t = new DefaultTokenizerFactory();
+        t.setTokenPreProcessor(new CommonPreprocessor());
+
+        // manual creation of VocabCache and WeightLookupTable usually isn't necessary
+        // but in this case we'll need them
+        VocabCache<VocabWord> cache = new AbstractCache<>();
+        WeightLookupTable<VocabWord> table = new InMemoryLookupTable.Builder<VocabWord>()
+            .vectorLength(100)
+            .useAdaGrad(false)
+            .cache(cache).build();
+
+        log.info("Building model....");
+        Word2Vec vec = new Word2Vec.Builder()
+            .minWordFrequency(minwordfreq)
+            .iterations(1)
+            .epochs(1)
+            .layerSize(100)
+            .seed(42)
+            .windowSize(5)
+            .iterate(iter)
+            .tokenizerFactory(t)
+            .lookupTable(table)
+            .vocabCache(cache)
+            .build();
+
+        log.info("Fitting Word2Vec model....");
+        vec.fit();
+
+
+        Collection<String> lst = vec.wordsNearest(topic, vectorlength);
+        log.info("Closest words to " + topic + " on 1st run: " + lst);
+
+        /*
+            at this moment we're supposed to have model built, and it can be saved for future use.
+         */
+        WordVectorSerializer.writeWord2VecModel(vec, "pathToSaveModel.txt");
+
+        /*
+            Let's assume that some time passed, and now we have new corpus to be used to weights update.
+            Instead of building new model over joint corpus, we can use weights update mode.
+         */
+        Word2Vec word2Vec = WordVectorSerializer.readWord2VecModel("pathToSaveModel.txt");
+
+        /*
+            PLEASE NOTE: after model is restored, it's still required to set SentenceIterator and TokenizerFactory, if you're going to train this model
+         */
+        SentenceIterator iterator = new BasicLineIterator(filePath);
+        TokenizerFactory tokenizerFactory = new DefaultTokenizerFactory();
+        tokenizerFactory.setTokenPreProcessor(new CommonPreprocessor());
+
+        word2Vec.setTokenizerFactory(tokenizerFactory);
+        word2Vec.setSentenceIterator(iterator);
+
+
+        log.info("Word2vec uptraining...");
+
+        word2Vec.fit();
+
+        lst = word2Vec.wordsNearestSum(topic, vectorlength);
+        log.info("Closest words to " + topic + " on 2nd run: " + lst);
+
+        /*
+            Model can be saved for future use now
+         */
+        return lst.toString();
+    }
+
     public static void main(String[] args) throws Exception {
         /*
                 Initial model training phase
